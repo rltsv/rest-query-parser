@@ -653,3 +653,123 @@ func QueryEqual(t *testing.T, q, got *Query) {
 		t.Errorf("q.Filters = %v , want = %v", got.Filters, q.Filters)
 	}
 }
+
+/// Новые тесты
+
+func Test_DeleteFunc(t *testing.T) {
+	q := New()
+	assert.Equal(t, "DELETE", q.DELETE())
+}
+
+func Test_DeleteQueryBuild(t *testing.T) {
+	parsedURL, err := url.Parse("http://localhost:8080?listenerId[eq]=026da080-4372-4275-b6ea-e40d1e9beb77&description[eq]=con")
+	assert.NoError(t, err)
+	q := New()
+	q.SetUrlQuery(parsedURL.Query())
+	q.SetValidations(Validations{
+		"listenerId:string":  nil,
+		"description:string": nil,
+	})
+	assert.NoError(t, q.Parse())
+	assert.Equal(t, "DELETE FROM table WHERE listenerId = ? AND description = ?", q.sqlForDelete("table"))
+}
+
+func Test_BuildQueryForDelete(t *testing.T) {
+	cases := []struct {
+		tableName   string
+		uri         string
+		sqlQuery    string
+		err         string
+		validations Validations
+	}{
+		{
+			tableName: "test",
+			uri:       "http://localhost:8080?listenerId[eq]=026da080-4372-4275-b6ea-e40d1e9beb77&address[eq]=10%2F2%2F140&dpt[eq]=5.010&description[eq]=con&control[eq]=w",
+			sqlQuery:  "DELETE FROM test WHERE listenerId = ? AND address = ? AND dpt = ? AND description = ? AND control = ?",
+			validations: Validations{
+				"listenerId:string":  nil,
+				"address:string":     nil,
+				"dpt:string":         nil,
+				"description:string": nil,
+				"control:string":     nil,
+			},
+		},
+		{
+			tableName: "test",
+			uri:       "http://localhost:8080?listenerId[eq]=026da080-4372-4275-b6ea-e40d1e9beb77&address[eq]=10%2F2%2F140&dpt[eq]=5.010&description[eq]=con",
+			sqlQuery:  "DELETE FROM test WHERE listenerId = ? AND address = ? AND dpt = ? AND description = ?",
+			validations: Validations{
+				"listenerId":  nil,
+				"address":     nil,
+				"dpt:string":  nil,
+				"description": nil,
+			},
+		},
+		{
+			tableName: "test",
+			uri:       "http://localhost:8080?listenerId[eq]=026da080-4372-4275-b6ea-e40d1e9beb77&dpt[like]=5.&description[eq]=con",
+			sqlQuery:  `DELETE FROM test WHERE listenerId = ? AND dpt LIKE "5." AND description = ?`,
+			validations: Validations{
+				"listenerId":  nil,
+				"address":     nil,
+				"dpt":         nil,
+				"description": nil,
+			},
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.uri, func(t *testing.T) {
+			parsedUrl, err := url.Parse(tt.uri)
+			assert.NoError(t, err)
+			q := New()
+			q.SetUrlQuery(parsedUrl.Query())
+			q.SetValidations(tt.validations)
+			err = q.Parse()
+			assert.NoError(t, err)
+
+			assert.Equal(t, tt.sqlQuery, q.sqlForDelete(tt.tableName))
+		})
+	}
+}
+
+func TestQuery_Parse(t *testing.T) {
+	type request struct {
+		uri         string
+		validations Validations
+	}
+	type want struct {
+		err string
+	}
+
+	tests := []struct {
+		name string
+		request
+		want
+	}{
+		{
+			name: "empty query value",
+			request: request{
+				uri: "http://localhost:8080?listenerId[eq]=",
+				validations: Validations{
+					"listenerId": nil,
+				},
+			},
+			want: want{
+				err: "empty value listenerId[eq]",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parsedUrl, err := url.Parse(tt.uri)
+			assert.NoError(t, err)
+			q := New()
+			q.SetUrlQuery(parsedUrl.Query())
+			q.SetValidations(tt.validations)
+			err = q.Parse()
+			assert.Equal(t, tt.err, err)
+		})
+	}
+}
